@@ -1,17 +1,17 @@
-const express    = require('express');
-const http       = require('http');
-const socketIo   = require('socket.io');
-const mediasoup  = require('mediasoup');
+const express   = require('express');
+const http      = require('http');
+const { Server: IOServer } = require('socket.io');
+const mediasoup = require('mediasoup');
 
 const app    = express();
 const server = http.createServer(app);
-const io     = socketIo(server);
+const io     = new IOServer(server);
 const PORT   = process.env.PORT || 3000;
 
 let worker, router;
 const transports = {};
 
-;(async () => {
+(async () => {
   worker = await mediasoup.createWorker();
   router = await worker.createRouter({
     mediaCodecs: [
@@ -21,14 +21,11 @@ const transports = {};
   });
 })();
 
-// Serve static files from /public
 app.use(express.static('public'));
 
 io.on('connection', socket => {
-  // 1) send rtpCapabilities
-  socket.on('getRouterRtpCapabilities', (_, cb) => {
-    cb(router.rtpCapabilities);
-  });
+  // 1) send router RTP capabilities
+  socket.on('getRouterRtpCapabilities', (_, cb) => cb(router.rtpCapabilities));
 
   // 2) create producer transport
   socket.on('createProducerTransport', async (_, cb) => {
@@ -55,7 +52,6 @@ io.on('connection', socket => {
   });
   socket.on('produce', async ({ kind, rtpParameters }, cb) => {
     const proc = await transports[socket.id].producer.produce({ kind, rtpParameters });
-    // tell everyone about the new producer
     io.emit('newProducer', { producerId: proc.id });
     cb({ id: proc.id });
   });
@@ -82,34 +78,18 @@ io.on('connection', socket => {
     cb();
   });
 
-  // 5) consume on newProducer
+  // 5) consume when a new producer is announced
   socket.on('consume', async ({ producerId, rtpCapabilities }, cb) => {
     if (!router.canConsume({ producerId, rtpCapabilities }))
       return cb({ error: 'cannotConsume' });
-    const consumer = await transports[socket.id].consumer.consume({
-      producerId,
-      rtpCapabilities,
-      paused: false
-    });
-    cb({
-      id: consumer.id,
-      producerId,
-      kind: consumer.kind,
-      rtpParameters: consumer.rtpParameters
-    });
+    const consumer = await transports[socket.id].consumer.consume({ producerId, rtpCapabilities, paused: false });
+    cb({ id: consumer.id, producerId, kind: consumer.kind, rtpParameters: consumer.rtpParameters });
   });
+  socket.on('resumeConsumer', async ({ consumerId }, cb) => { await transports[socket.id].consumer.resume(); cb(); });
 
-  // 6) resume consumer
-  socket.on('resumeConsumer', async ({ consumerId }, cb) => {
-    await transports[socket.id].consumer.resume();
-    cb();
-  });
-
-  // cleanup
   socket.on('disconnect', () => {
-    const t = transports[socket.id] || {};
-    t.producer?.close();
-    t.consumer?.close();
+    transports[socket.id]?.producer?.close();
+    transports[socket.id]?.consumer?.close();
     delete transports[socket.id];
   });
 });

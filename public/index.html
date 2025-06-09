@@ -1,20 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>SFU Video Chat</title>
-  <link rel="stylesheet" href="style.css">
-  <!-- Load mediasoup-client in browser -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Omegle.baby Chat</title>
+  <link rel="stylesheet" href="/style.css" />
+  <!-- Mediasoup client library for SFU -->
   <script src="https://unpkg.com/mediasoup-client@3.11.0/lib/index.js"></script>
 </head>
 <body>
-  <h1>SFU Video Chat</h1>
-  <div id="videos">
-    <video id="localVideo" autoplay muted playsinline></video>
-    <video id="remoteVideo" autoplay playsinline></video>
+  <header>
+    <h1>Omegle.baby</h1>
+    <p>Instant, anonymous video & text connections</p>
+  </header>
+  <div id="container">
+    <div id="video-column">
+      <div class="video-container">
+        <video id="remoteVideo" autoplay playsinline></video>
+        <input id="remote-volume" type="range" min="0" max="1" step="0.05" value="1" title="Partner volume"/>
+      </div>
+      <div class="video-container">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <button id="mute-btn" title="Mute/Unmute mic">🎙️</button>
+      </div>
+    </div>
+    <div id="chat-panel">
+      <div id="chat-header">
+        <span>Meet someone new! 🌐🎥</span>
+        <div id="partner-info" style="display:none;"></div>
+      </div>
+      <div id="status">Connecting...</div>
+      <div id="messages"></div>
+      <div id="controls">
+        <input id="input" placeholder="Type a message…" />
+        <button id="send-btn" disabled>Send</button>
+        <button id="next-btn">Next ▶</button>
+      </div>
+    </div>
   </div>
+  <footer>
+    We do not entertain persons under 18. By using this service, you agree to our
+    <a href="/terms.html" target="_blank">Terms &amp; Conditions</a> and
+    <a href="/privacy.html" target="_blank">Privacy Policy</a>.
+  </footer>
+
   <script src="/socket.io/socket.io.js"></script>
-  <script src="client.js"></script>
+  <script src="/chat-client.js"></script>
+  <script>
+    if (!sessionStorage.getItem('gender') || !sessionStorage.getItem('location')) {
+      window.location.href = '/';
+    }
+  </script>
 </body>
 </html>
