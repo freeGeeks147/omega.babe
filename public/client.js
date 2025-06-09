@@ -1,5 +1,4 @@
-import * as mediasoupClient from 'mediasoup-client';
-
+const { Device } = window.mediasoupClient;
 const socket = io();
 let device, producerTransport, consumerTransport;
 
@@ -10,10 +9,10 @@ let device, producerTransport, consumerTransport;
   );
 
   // 2) load device
-  device = new mediasoupClient.Device();
+  device = new Device();
   await device.load({ routerRtpCapabilities });
 
-  // 3) create producer transport
+  // 3) create & connect producer transport
   const pParams = await new Promise(res =>
     socket.emit('createProducerTransport', null, res)
   );
@@ -25,15 +24,13 @@ let device, producerTransport, consumerTransport;
     socket.emit('produce', { kind, rtpParameters }, ({ id }) => cb({ id }))
   );
 
-  // 4) capture & produce
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width:640, height:360, frameRate:15 }, audio:true
-  });
+  // 4) capture & send
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:360, frameRate:15 }, audio:true });
   document.getElementById('localVideo').srcObject = stream;
   for (const track of stream.getTracks())
     await producerTransport.produce({ track });
 
-  // 5) create consumer transport
+  // 5) create & connect consumer transport
   const cParams = await new Promise(res =>
     socket.emit('createConsumerTransport', null, res)
   );
