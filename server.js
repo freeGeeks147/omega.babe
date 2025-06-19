@@ -61,12 +61,14 @@ io.on('connection', socket => {
     const producer = await transport.produce({ kind, rtpParameters });
     rooms[roomId].producers.push({ producerId: producer.id, socketId: socket.id });
     cb({ id: producer.id });
-    // tell peer to consume
+    // notify the other peer
     socket.to(roomId).emit('newProducer', { producerId: producer.id });
   });
 
   socket.on('consume', async ({ roomId, producerId, rtpCapabilities }, cb) => {
-    if (!router.canConsume({ producerId, rtpCapabilities })) return cb({ error: 'Cannot consume' });
+    if (!router.canConsume({ producerId, rtpCapabilities })) {
+      return cb({ error: 'Cannot consume' });
+    }
     const transport = rooms[roomId].transports[socket.id];
     const consumer = await transport.consume({ producerId, rtpCapabilities, paused: false });
     cb({ id: consumer.id, producerId, kind: consumer.kind, rtpParameters: consumer.rtpParameters });
