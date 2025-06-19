@@ -6,6 +6,8 @@ import { createWorker } from 'mediasoup';
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Serve static files from public/
 app.use(express.static('public'));
 
 // Mediasoup Configuration
@@ -24,11 +26,12 @@ let worker, router;
 (async () => {
   worker = await createWorker(config.worker);
   router = await worker.createRouter({ mediaCodecs: config.router.mediaCodecs });
-  console.log('Mediasoup worker and router running');
+  console.log('Mediasoup worker/router running');
 })();
 
 const waiting = [];
 const rooms = {};
+
 io.on('connection', socket => {
   socket.on('join', () => {
     if (waiting.length) {
@@ -59,15 +62,13 @@ io.on('connection', socket => {
   socket.on('produce', async ({ roomId, kind, rtpParameters }, cb) => {
     const transport = rooms[roomId].transports[socket.id];
     const producer = await transport.produce({ kind, rtpParameters });
-    rooms[roomId].producers.push({ producerId: producer.id, socketId: socket.id });
+    rooms[roomId].producers.push({ id: producer.id, socketId: socket.id });
     cb({ id: producer.id });
     socket.to(roomId).emit('newProducer', { producerId: producer.id });
   });
 
   socket.on('consume', async ({ roomId, producerId, rtpCapabilities }, cb) => {
-    if (!router.canConsume({ producerId, rtpCapabilities })) {
-      return cb({ error: 'Cannot consume' });
-    }
+    if (!router.canConsume({ producerId, rtpCapabilities })) return cb({ error: 'cannot consume' });
     const transport = rooms[roomId].transports[socket.id];
     const consumer = await transport.consume({ producerId, rtpCapabilities, paused: false });
     cb({ id: consumer.id, producerId, kind: consumer.kind, rtpParameters: consumer.rtpParameters });
@@ -82,5 +83,4 @@ io.on('connection', socket => {
   });
 });
 
-server.listen(3000, () => console.log('Server running on port 3000'));
-
+server.listen(3000, () => console.log('Server listening on port 3000'));

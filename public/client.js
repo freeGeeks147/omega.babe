@@ -1,61 +1,55 @@
-import * as mediasoupClient from 'https://unpkg.com/mediasoup-client@3/lib/index.js';
+import { io } from 'https://cdn.socket.io/4.7.2/socket.io.esm.min.js';
+import { Device } from 'https://unpkg.com/mediasoup-client@3/lib-esm/index.js?module';
 
-// Use global `io` loaded by the above script tag
 const socket = io();
-let device, producerTransport, consumerTransport;
+let device, sendTransport, recvTransport;
 let localStream;
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 
-document.getElementById('start').onclick = start;
-
-async function start() {
-  console.log('Requesting local media...');
+// Click handler
+document.getElementById('start').addEventListener('click', async () => {
+  console.log('Requesting media...');
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
     localVideo.srcObject = localStream;
-    console.log('Local media obtained');
+    console.log('Local media ready');
   } catch (err) {
-    console.error('Failed to get local media:', err);
+    console.error('Media error:', err);
     return;
   }
-  console.log('Joining room...');
   socket.emit('join');
-}
+});
 
-socket.on('waiting', () => console.log('Waiting for a peer...'));
+socket.on('waiting', () => console.log('Waiting for peer...'));
 
 socket.on('roomReady', async ({ roomId }) => {
-  console.log('Room ready:', roomId);
-
-  // 1. Get router RTP capabilities
+  console.log('Paired, room:', roomId);
   const rtpCapabilities = await new Promise(res => socket.emit('getRtpCapabilities', null, res));
 
-  // 2. Create device
-  device = new mediasoupClient.Device();
+  device = new Device();
   await device.load({ routerRtpCapabilities: rtpCapabilities });
 
-  // 3. Consumer transport
+  // Setup receive transport
   const recvParams = await new Promise(res => socket.emit('createTransport', { roomId }, res));
-  consumerTransport = device.createRecvTransport(recvParams);
-  consumerTransport.on('connect', ({ dtlsParameters }, cb) => socket.emit('connectTransport', { roomId, dtlsParameters }, cb));
-
+  recvTransport = device.createRecvTransport(recvParams);
+  recvTransport.on('connect', ({ dtlsParameters }, cb) => socket.emit('connectTransport', { roomId, dtlsParameters }, cb));
   socket.on('newProducer', async ({ producerId }) => {
     console.log('New producer:', producerId);
     const params = await new Promise(res => socket.emit('consume', { roomId, producerId, rtpCapabilities: device.rtpCapabilities }, res));
-    if (params.error) return console.warn('Cannot consume:', params.error);
-    const consumer = await consumerTransport.consume(params);
-    const remoteStream = new MediaStream(); remoteStream.addTrack(consumer.track);
-    remoteVideo.srcObject = remoteStream;
-    console.log('Remote stream rendered');
+    if (params.error) return console.warn('Cannot consume');
+    const consumer = await recvTransport.consume(params);
+    const stream = new MediaStream();
+    stream.addTrack(consumer.track);
+    remoteVideo.srcObject = stream;
+    console.log('Rendered remote');
   });
 
-  // 4. Producer transport
+  // Setup send transport & produce
   const sendParams = await new Promise(res => socket.emit('createTransport', { roomId }, res));
-  producerTransport = device.createSendTransport(sendParams);
-  producerTransport.on('connect', ({ dtlsParameters }, cb) => socket.emit('connectTransport', { roomId, dtlsParameters }, cb));
-  producerTransport.on('produce', ({ kind, rtpParameters }, cb) => socket.emit('produce', { roomId, kind, rtpParameters }, cb));
+  sendTransport = device.createSendTransport(sendParams);
+  sendTransport.on('connect', ({ dtlsParameters }, cb) => socket.emit('connectTransport', { roomId, dtlsParameters }, cb));
+  sendTransport.on('produce', ({ kind, rtpParameters }, cb) => socket.emit('produce', { roomId, kind, rtpParameters }, cb));
 
-  // 5. Produce local tracks
-  localStream.getTracks().forEach(track => producerTransport.produce({ track }));
+  localStream.getTracks().forEach(track => sendTransport.produce({ track }));
 });
