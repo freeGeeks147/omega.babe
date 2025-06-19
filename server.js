@@ -1,97 +1,123 @@
-const express   = require('express');
-const http      = require('http');
-const { Server: IOServer } = require('socket.io');
+// server.js
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const mediasoup = require('mediasoup');
 
-const app    = express();
+const app = express();
 const server = http.createServer(app);
-const io     = new IOServer(server);
-const PORT   = process.env.PORT || 3000;
-
-let worker, router;
-const transports = {};
-
-(async () => {
-  worker = await mediasoup.createWorker();
-  router = await worker.createRouter({
-    mediaCodecs: [
-      { kind: 'audio', mimeType: 'audio/opus', clockRate: 48000, channels: 2 },
-      { kind: 'video', mimeType: 'video/VP8', clockRate: 90000 }
-    ]
-  });
-})();
+const io = new Server(server);
 
 app.use(express.static('public'));
 
+// Mediasoup Configuration
+const config = {
+  worker: {
+    rtcMinPort: 40000,
+    rtcMaxPort: 49999,
+    logLevel: 'warn',
+  },
+  router: {
+    mediaCodecs: [
+      {
+        kind: 'audio',
+        mimeType: 'audio/opus',
+        clockRate: 48000,
+        channels: 2,
+      },
+      {
+        kind: 'video',
+        mimeType: 'video/VP8',
+        clockRate: 90000,
+        parameters: {},
+      },
+    ],
+  },
+  webRtcTransport: {
+    listenIps: [{ ip: '0.0.0.0', announcedIp: null }],
+    enableUdp: true,
+    enableTcp: true,
+    preferUdp: true,
+  },
+};
+
+let worker, router;
+(async () => {
+  worker = await mediasoup.createWorker(config.worker);
+  router = await worker.createRouter({ mediaCodecs: config.router.mediaCodecs });
+  console.log('Mediasoup worker and router running');
+})();
+
+const waiting = [];
+const rooms = {};
+
 io.on('connection', socket => {
-  // 1) send router RTP capabilities
-  socket.on('getRouterRtpCapabilities', (_, cb) => cb(router.rtpCapabilities));
+  socket.on('join', () => {
+    if (waiting.length) {
+      const peer = waiting.shift();
+      const roomId = socket.id + '#' + peer.id;
+      rooms[roomId] = { peers: [socket, peer] };
+      [socket, peer].forEach(s => s.join(roomId));
+      io.to(roomId).emit('roomReady', { roomId });
+    } else {
+      waiting.push(socket);
+      socket.emit('waiting');
+    }
+  });
 
-  // 2) create producer transport
-  socket.on('createProducerTransport', async (_, cb) => {
-    const transport = await router.createWebRtcTransport({
-      listenIps: [{ ip: '0.0.0.0', announcedIp: null }],
-      enableUdp: true,
-      enableTcp: true,
-      preferUdp: true
-    });
-    transports[socket.id] = transports[socket.id] || {};
-    transports[socket.id].producer = transport;
-    cb({
+  // Signaling handlers:
+  socket.on('getRtpCapabilities', (_, callback) => {
+    callback(router.rtpCapabilities);
+  });
+
+  socket.on('createTransport', async ({ roomId }, callback) => {
+    const transport = await router.createWebRtcTransport(config.webRtcTransport);
+    rooms[roomId].transportMap = rooms[roomId].transportMap || {};
+    rooms[roomId].transportMap[socket.id] = transport;
+
+    callback({
       id: transport.id,
       iceParameters: transport.iceParameters,
       iceCandidates: transport.iceCandidates,
-      dtlsParameters: transport.dtlsParameters
+      dtlsParameters: transport.dtlsParameters,
     });
   });
 
-  // 3) connect & produce
-  socket.on('connectProducerTransport', async ({ dtlsParameters }, cb) => {
-    await transports[socket.id].producer.connect({ dtlsParameters });
-    cb();
-  });
-  socket.on('produce', async ({ kind, rtpParameters }, cb) => {
-    const proc = await transports[socket.id].producer.produce({ kind, rtpParameters });
-    io.emit('newProducer', { producerId: proc.id });
-    cb({ id: proc.id });
+  socket.on('connectTransport', async ({ dtlsParameters, roomId }) => {
+    const transport = rooms[roomId].transportMap[socket.id];
+    await transport.connect({ dtlsParameters });
   });
 
-  // 4) create consumer transport
-  socket.on('createConsumerTransport', async (_, cb) => {
-    const transport = await router.createWebRtcTransport({
-      listenIps: [{ ip: '0.0.0.0', announcedIp: null }],
-      enableUdp: true,
-      enableTcp: true,
-      preferUdp: true
-    });
-    transports[socket.id] = transports[socket.id] || {};
-    transports[socket.id].consumer = transport;
-    cb({
-      id: transport.id,
-      iceParameters: transport.iceParameters,
-      iceCandidates: transport.iceCandidates,
-      dtlsParameters: transport.dtlsParameters
-    });
-  });
-  socket.on('connectConsumerTransport', async ({ dtlsParameters }, cb) => {
-    await transports[socket.id].consumer.connect({ dtlsParameters });
-    cb();
+  socket.on('produce', async ({ kind, rtpParameters, roomId }, callback) => {
+    const transport = rooms[roomId].transportMap[socket.id];
+    const producer = await transport.produce({ kind, rtpParameters });
+    rooms[roomId].producers = rooms[roomId].producers || [];
+    rooms[roomId].producers.push({ producer, socketId: socket.id });
+    callback({ id: producer.id });
   });
 
-  // 5) consume when a new producer is announced
-  socket.on('consume', async ({ producerId, rtpCapabilities }, cb) => {
-    if (!router.canConsume({ producerId, rtpCapabilities }))
-      return cb({ error: 'cannotConsume' });
-    const consumer = await transports[socket.id].consumer.consume({ producerId, rtpCapabilities, paused: false });
-    cb({ id: consumer.id, producerId, kind: consumer.kind, rtpParameters: consumer.rtpParameters });
+  socket.on('consume', async ({ producerId, rtpCapabilities, roomId }, callback) => {
+    if (!router.canConsume({ producerId, rtpCapabilities })) {
+      return callback({ error: 'Cannot consume' });
+    }
+    const transport = rooms[roomId].transportMap[socket.id];
+    const consumer = await transport.consume({ producerId, rtpCapabilities, paused: false });
+    callback({
+      id: consumer.id,
+      producerId,
+      kind: consumer.kind,
+      rtpParameters: consumer.rtpParameters,
+    });
   });
-  socket.on('resumeConsumer', async ({ consumerId }, cb) => { await transports[socket.id].consumer.resume(); cb(); });
 
   socket.on('disconnect', () => {
-    transports[socket.id]?.producer?.close();
-    transports[socket.id]?.consumer?.close();
-    delete transports[socket.id];
+    // cleanup
+    const roomId = socket.rooms.has(socket.id) ? null : Array.from(socket.rooms)[1];
+    if (roomId && rooms[roomId]) {
+      rooms[roomId].peers.forEach(s => s.leave(roomId));
+      delete rooms[roomId];
+    }
   });
 });
 
-server.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+server.listen(3000, () => console.log('Server running on port 3000'));
