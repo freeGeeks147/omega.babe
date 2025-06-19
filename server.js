@@ -1,8 +1,7 @@
-// server.js
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const mediasoup = require('mediasoup');
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import { createWorker } from 'mediasoup';
 
 const app = express();
 const server = http.createServer(app);
@@ -43,7 +42,7 @@ const config = {
 
 let worker, router;
 (async () => {
-  worker = await mediasoup.createWorker(config.worker);
+  worker = await createWorker(config.worker);
   router = await worker.createRouter({ mediaCodecs: config.router.mediaCodecs });
   console.log('Mediasoup worker and router running');
 })();
@@ -56,7 +55,7 @@ io.on('connection', socket => {
     if (waiting.length) {
       const peer = waiting.shift();
       const roomId = socket.id + '#' + peer.id;
-      rooms[roomId] = { peers: [socket, peer] };
+      rooms[roomId] = { peers: [socket, peer], transportMap: {}, producers: [] };
       [socket, peer].forEach(s => s.join(roomId));
       io.to(roomId).emit('roomReady', { roomId });
     } else {
@@ -65,16 +64,13 @@ io.on('connection', socket => {
     }
   });
 
-  // Signaling handlers:
   socket.on('getRtpCapabilities', (_, callback) => {
     callback(router.rtpCapabilities);
   });
 
   socket.on('createTransport', async ({ roomId }, callback) => {
     const transport = await router.createWebRtcTransport(config.webRtcTransport);
-    rooms[roomId].transportMap = rooms[roomId].transportMap || {};
     rooms[roomId].transportMap[socket.id] = transport;
-
     callback({
       id: transport.id,
       iceParameters: transport.iceParameters,
@@ -91,7 +87,6 @@ io.on('connection', socket => {
   socket.on('produce', async ({ kind, rtpParameters, roomId }, callback) => {
     const transport = rooms[roomId].transportMap[socket.id];
     const producer = await transport.produce({ kind, rtpParameters });
-    rooms[roomId].producers = rooms[roomId].producers || [];
     rooms[roomId].producers.push({ producer, socketId: socket.id });
     callback({ id: producer.id });
   });
@@ -111,8 +106,7 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', () => {
-    // cleanup
-    const roomId = socket.rooms.has(socket.id) ? null : Array.from(socket.rooms)[1];
+    const roomId = Array.from(socket.rooms).find(r => r !== socket.id);
     if (roomId && rooms[roomId]) {
       rooms[roomId].peers.forEach(s => s.leave(roomId));
       delete rooms[roomId];
@@ -121,3 +115,4 @@ io.on('connection', socket => {
 });
 
 server.listen(3000, () => console.log('Server running on port 3000'));
+
