@@ -1,5 +1,5 @@
 import { io } from 'https://cdn.socket.io/4.7.2/socket.io.esm.min.js';
-import { Device } from 'https://unpkg.com/mediasoup-client@3/lib-esm/index.js?module';
+import { Device } from 'https://cdn.skypack.dev/mediasoup-client';
 
 console.log('client.js loaded');
 const socket = io();
@@ -12,9 +12,7 @@ let localStream;
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
 
-// Click handler
-const startBtn = document.getElementById('start');
-startBtn.addEventListener('click', async () => {
+document.getElementById('start').addEventListener('click', async () => {
   console.log('[Button] Start clicked');
   console.log('Requesting media...');
   try {
@@ -29,22 +27,18 @@ startBtn.addEventListener('click', async () => {
   socket.emit('join');
 });
 
-// Signaling state
-socket.on('waiting', () => console.log('[Server] waiting for peer'));  
+socket.on('waiting', () => console.log('[Server] waiting for peer'));
 socket.on('roomReady', async ({ roomId }) => {
   console.log('[Server] roomReady, room:', roomId);
-  // 1. Get router RTP capabilities
   console.log('[Signal] requesting RTP capabilities');
   const rtpCapabilities = await new Promise(res => socket.emit('getRtpCapabilities', null, res));
   console.log('[Signal] rtpCapabilities received:', rtpCapabilities);
 
-  // 2. Create device
   device = new Device();
   console.log('Loading device with router capabilities');
   await device.load({ routerRtpCapabilities: rtpCapabilities });
   console.log('Device loaded');
 
-  // 3. Setup receive transport
   console.log('[Signal] creating receive transport');
   const recvParams = await new Promise(res => socket.emit('createTransport', { roomId }, res));
   console.log('[Signal] recvParams:', recvParams);
@@ -69,7 +63,6 @@ socket.on('roomReady', async ({ roomId }) => {
     console.log('[Video] remoteVideo.srcObject set');
   });
 
-  // 4. Setup send transport & produce
   console.log('[Signal] creating send transport');
   const sendParams = await new Promise(res => socket.emit('createTransport', { roomId }, res));
   console.log('[Signal] sendParams:', sendParams);
@@ -86,7 +79,6 @@ socket.on('roomReady', async ({ roomId }) => {
     });
   });
 
-  // 5. Produce local tracks
   console.log('Producing local tracks');
   localStream.getTracks().forEach(track => {
     console.log('Producing track:', track.kind);
