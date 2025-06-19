@@ -61,7 +61,6 @@ io.on('connection', socket => {
     const producer = await transport.produce({ kind, rtpParameters });
     rooms[roomId].producers.push({ producerId: producer.id, socketId: socket.id });
     cb({ id: producer.id });
-    // notify the other peer
     socket.to(roomId).emit('newProducer', { producerId: producer.id });
   });
 
@@ -83,4 +82,5 @@ io.on('connection', socket => {
   });
 });
 
-server.listen(3000, () => console.log('Server running on port 3000')); 
+server.listen(3000, () => console.log('Server running on port 3000'));
+

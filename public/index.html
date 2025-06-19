@@ -12,7 +12,10 @@
   <button id="start">Start Chat</button><br>
   <video id="localVideo" autoplay muted playsinline></video>
   <video id="remoteVideo" autoplay playsinline></video>
+
+  <!-- Load Socket.io client from server -->
   <script src="/socket.io/socket.io.js"></script>
+  <!-- Client logic as ES module -->
   <script type="module" src="client.js"></script>
 </body>
 </html>

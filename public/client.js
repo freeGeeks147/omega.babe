@@ -1,6 +1,6 @@
-import io from '/socket.io/socket.io.js';
 import * as mediasoupClient from 'https://unpkg.com/mediasoup-client@3/lib/index.js';
 
+// Use global `io` loaded by the above script tag
 const socket = io();
 let device, producerTransport, consumerTransport;
 let localStream;
@@ -35,43 +35,27 @@ socket.on('roomReady', async ({ roomId }) => {
   device = new mediasoupClient.Device();
   await device.load({ routerRtpCapabilities: rtpCapabilities });
 
-  // 3. Setup consumer transport
+  // 3. Consumer transport
   const recvParams = await new Promise(res => socket.emit('createTransport', { roomId }, res));
   consumerTransport = device.createRecvTransport(recvParams);
-  consumerTransport.on('connect', ({ dtlsParameters }, cb) => {
-    console.log('Consumer DTLS connect');
-    socket.emit('connectTransport', { roomId, dtlsParameters }, cb);
-  });
+  consumerTransport.on('connect', ({ dtlsParameters }, cb) => socket.emit('connectTransport', { roomId, dtlsParameters }, cb));
 
   socket.on('newProducer', async ({ producerId }) => {
     console.log('New producer:', producerId);
     const params = await new Promise(res => socket.emit('consume', { roomId, producerId, rtpCapabilities: device.rtpCapabilities }, res));
-    if (params.error) {
-      console.warn('Cannot consume:', params.error);
-      return;
-    }
+    if (params.error) return console.warn('Cannot consume:', params.error);
     const consumer = await consumerTransport.consume(params);
-    const remoteStream = new MediaStream();
-    remoteStream.addTrack(consumer.track);
+    const remoteStream = new MediaStream(); remoteStream.addTrack(consumer.track);
     remoteVideo.srcObject = remoteStream;
     console.log('Remote stream rendered');
   });
 
-  // 4. Setup producer transport
+  // 4. Producer transport
   const sendParams = await new Promise(res => socket.emit('createTransport', { roomId }, res));
   producerTransport = device.createSendTransport(sendParams);
-  producerTransport.on('connect', ({ dtlsParameters }, cb) => {
-    console.log('Producer DTLS connect');
-    socket.emit('connectTransport', { roomId, dtlsParameters }, cb);
-  });
-  producerTransport.on('produce', ({ kind, rtpParameters }, cb) => {
-    console.log('Producing track:', kind);
-    socket.emit('produce', { roomId, kind, rtpParameters }, cb);
-  });
+  producerTransport.on('connect', ({ dtlsParameters }, cb) => socket.emit('connectTransport', { roomId, dtlsParameters }, cb));
+  producerTransport.on('produce', ({ kind, rtpParameters }, cb) => socket.emit('produce', { roomId, kind, rtpParameters }, cb));
 
-  // 5. Produce tracks from localStream
-  localStream.getTracks().forEach(track => {
-    console.log('Producing track:', track.kind);
-    producerTransport.produce({ track });
-  });
+  // 5. Produce local tracks
+  localStream.getTracks().forEach(track => producerTransport.produce({ track }));
 });
