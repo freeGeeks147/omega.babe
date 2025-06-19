@@ -2,15 +2,16 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Omegle Clone with mediasoup</title>
+  <title>Omegle Clone with Mediasoup</title>
+  <style>
+    video { width: 45%; margin: 5px; background: #000; }
+  </style>
 </head>
 <body>
-  <button id="start">Start Chat</button>
+  <button id="start">Start Chat</button><br>
   <video id="localVideo" autoplay muted playsinline></video>
   <video id="remoteVideo" autoplay playsinline></video>
-
   <script src="/socket.io/socket.io.js"></script>
-  <script src="https://unpkg.com/mediasoup-client@3/lib/index.js"></script>
-  <script src="client.js"></script>
+  <script type="module" src="client.js"></script>
 </body>
 </html>
