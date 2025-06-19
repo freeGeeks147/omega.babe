@@ -1,5 +1,5 @@
 import { io } from 'https://cdn.socket.io/4.7.2/socket.io.esm.min.js';
-import { Device } from 'https://cdn.skypack.dev/mediasoup-client';
+import { Device } from 'https://cdn.skypack.dev/pin/mediasoup-client@v3.11.0-RRx9H9tJEfH5R7CRaGA6/mode=imports/optimized/mediasoup-client.js';
 
 console.log('client.js loaded');
 const socket = io();
