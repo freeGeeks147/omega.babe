@@ -7,10 +7,10 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Serve static files from public/
+// Serve static files
 app.use(express.static('public'));
 
-// Mediasoup Configuration
+// Mediasoup config
 const config = {
   worker: { rtcMinPort: 40000, rtcMaxPort: 49999, logLevel: 'warn' },
   router: {
@@ -33,6 +33,8 @@ const waiting = [];
 const rooms = {};
 
 io.on('connection', socket => {
+  console.log('[server] client connected', socket.id);
+
   socket.on('join', () => {
     if (waiting.length) {
       const peer = waiting.shift();
@@ -51,7 +53,12 @@ io.on('connection', socket => {
   socket.on('createTransport', async ({ roomId }, cb) => {
     const transport = await router.createWebRtcTransport(config.webRtcTransport);
     rooms[roomId].transports[socket.id] = transport;
-    cb({ id: transport.id, iceParameters: transport.iceParameters, iceCandidates: transport.iceCandidates, dtlsParameters: transport.dtlsParameters });
+    cb({
+      id: transport.id,
+      iceParameters: transport.iceParameters,
+      iceCandidates: transport.iceCandidates,
+      dtlsParameters: transport.dtlsParameters,
+    });
   });
 
   socket.on('connectTransport', async ({ roomId, dtlsParameters }) => {
@@ -75,6 +82,7 @@ io.on('connection', socket => {
   });
 
   socket.on('disconnect', () => {
+    console.log('[server] client disconnected', socket.id);
     const roomId = Object.keys(rooms).find(r => rooms[r].peers.some(s => s.id === socket.id));
     if (roomId) {
       rooms[roomId].peers.forEach(s => s.leave(roomId));
